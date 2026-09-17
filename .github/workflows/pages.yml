@@ -77,6 +77,10 @@ jobs:
           --site-url "$SITE_URL" --minimum "$LWJGL3IFY_MIN_VERSION"
       - name: Verify served checksums and dependencies
         run: python -m scripts.verify_metadata public/v1
+      - name: Install software graphics for the isolated launch test
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends xvfb libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0
       - name: Launch the latest profile with only UniMixins installed
         env:
           GITHUB_TOKEN: ${{ github.token }}
