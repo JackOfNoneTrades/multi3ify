@@ -1,0 +1,107 @@
+name: Update and publish metadata
+
+on:
+  push:
+    branches: [master, main]
+    paths-ignore: [sync-state.json]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: metadata-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: python -m unittest discover -s tests -v
+
+  publish:
+    if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      PRISM_META_REPOSITORY: ${{ vars.PRISM_META_REPOSITORY || 'PrismLauncher/meta-launcher' }}
+      LWJGL3IFY_MIN_VERSION: ${{ vars.LWJGL3IFY_MIN_VERSION || '3.0.0' }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check out the official metadata snapshot
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.PRISM_META_REPOSITORY }}
+          ref: ${{ vars.PRISM_META_REF }}
+          path: .upstream
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/configure-pages@v6
+        id: pages
+      - uses: actions/cache@v6
+        with:
+          path: .cache/releases
+          key: lwjgl3ify-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: lwjgl3ify-v1-${{ runner.os }}-
+      - name: Build the complete metadata feed
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+        run: >-
+          python scripts/build_metadata.py --upstream .upstream --output public
+          --site-url "$SITE_URL" --minimum "$LWJGL3IFY_MIN_VERSION"
+      - name: Verify served checksums and dependencies
+        run: python -m scripts.verify_metadata public/v1
+      - name: Launch the latest profile with only UniMixins installed
+        run: xvfb-run -a python -m scripts.smoke_launch public
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: public
+          include-hidden-files: true
+      - uses: actions/deploy-pages@v5
+        id: deploy
+      - name: Record the published upstream state
+        # Real upstream changes keep the repo active, avoiding GitHub's 60-day
+        # inactivity cutoff for scheduled workflows. GITHUB_TOKEN pushes do not
+        # recursively trigger workflows. Do not force-push over maintainer edits.
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          status = json.loads(pathlib.Path('public/status.json').read_text())
+          state = {
+              'metadataRepository': os.environ['PRISM_META_REPOSITORY'],
+              'metadataCommit': subprocess.check_output(['git', '-C', '.upstream', 'rev-parse', 'HEAD'], text=True).strip(),
+              'lwjgl3ifyVersions': status['versions'],
+          }
+          pathlib.Path('sync-state.json').write_text(json.dumps(state, indent=2) + '\n')
+          PY
+          git add sync-state.json
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Record published metadata snapshot'
+            git push
+          fi

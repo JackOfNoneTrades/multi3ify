@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Linux/x86_64 integration check: boot the latest profile under xvfb.
+
+Uses an isolated offline test instance, never a real launcher account/instance.
+Run: xvfb-run -a python -m scripts.smoke_launch public
+"""
+import argparse
+from concurrent.futures import ThreadPoolExecutor
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import subprocess
+import time
+import urllib.parse
+import zipfile
+
+from scripts.build_metadata import fetch, MC_VERSION
+
+
+def download(artifact, path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    def valid(data):
+        return (len(data) == artifact.get("size", len(data))
+                and (not artifact.get("sha1") or hashlib.sha1(data).hexdigest() == artifact["sha1"]))
+    if path.exists() and valid(path.read_bytes()):
+        return path
+    data = fetch(artifact["url"])
+    if not valid(data):
+        raise ValueError(f"Download checksum mismatch: {artifact['url']}")
+    path.write_bytes(data)
+    return path
+
+
+def active(library):
+    rules = library.get("rules")
+    if not rules:
+        return True
+    allowed = False
+    for rule in rules:
+        if rule.get("os", {}).get("name", "linux") == "linux":
+            allowed = rule["action"] == "allow"
+    return allowed
+
+
+def smoke(site, work, timeout):
+    site, work = site.resolve(), work.resolve()
+    game = work / "game"
+    game.mkdir(parents=True, exist_ok=True)
+    status = json.loads((site / "status.json").read_bytes())
+    forge = json.loads((site / f"v1/net.minecraftforge/{status['forge']}-lwjgl3ify-latest.json").read_bytes())
+    minecraft = json.loads((site / f"v1/net.minecraft/{MC_VERSION}.json").read_bytes())
+    libraries = {}
+    for library in forge["libraries"]:
+        if not active(library):
+            continue
+        parts = library["name"].split(":")
+        key = tuple(parts[:2] + parts[3:])
+        # The current upstream duplicates only Guava; preserve first position while replacing with the later version.
+        if key in libraries and library != libraries[key] and parts[:2] != ["com.google.guava", "guava"]:
+            raise ValueError(f"New duplicate library needs launcher version comparison: {library['name']}")
+        libraries[key] = library
+    tasks, classpath, native_jars = [], [], []
+    for library in [*libraries.values(), minecraft["mainJar"]]:
+        downloads = library["downloads"]
+        if "artifact" in downloads:
+            artifact = downloads["artifact"]
+            if library["name"].startswith("io.github.jackofnonetrades:multi3ify-bootstrap:"):
+                path = site / ("maven/" + artifact["url"].split("/maven/", 1)[1])
+            else:
+                path = work / "libraries" / Path(urllib.parse.urlparse(artifact["url"]).path).name
+                tasks.append((artifact, path))
+            classpath.append(str(path))
+        classifier = library.get("natives", {}).get("linux")
+        if classifier:
+            classifier = classifier.replace("${arch}", "64")
+            artifact = downloads["classifiers"][classifier]
+            path = work / "libraries" / Path(urllib.parse.urlparse(artifact["url"]).path).name
+            tasks.append((artifact, path))
+            native_jars.append(path)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda task: download(*task), tasks))
+    natives = work / "natives"
+    natives.mkdir(exist_ok=True)
+    for path in native_jars:
+        with zipfile.ZipFile(path) as jar:
+            for member in jar.namelist():
+                if member.endswith(".so"):
+                    (natives / Path(member).name).write_bytes(jar.read(member))
+    assets = work / "assets"
+    asset_index = minecraft["assetIndex"]
+    index_path = download(asset_index, assets / "indexes" / (asset_index["id"] + ".json"))
+    objects = json.loads(index_path.read_bytes())["objects"]
+    def asset(item):
+        name, info = item
+        digest = info["hash"]
+        path = download({"url": f"https://resources.download.minecraft.net/{digest[:2]}/{digest}",
+                         "size": info["size"], "sha1": digest}, assets / "objects" / digest[:2] / digest)
+        # 1.7.10 consumes the resource pack from virtual/legacy too.
+        virtual = assets / "virtual" / "legacy" / name
+        virtual.parent.mkdir(parents=True, exist_ok=True)
+        virtual.write_bytes(path.read_bytes())
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        list(pool.map(asset, objects.items()))
+    unimixins = json.loads(fetch("https://api.github.com/repos/LegacyModdingMC/UniMixins/releases/latest"))
+    mod = next(a for a in unimixins["assets"] if re.fullmatch(r"\+unimixins-all-1\.7\.10-[\d.]+\.jar", a["name"]))
+    download({"url": mod["browser_download_url"], "size": mod["size"]}, game / "mods" / mod["name"])
+    args = {"auth_player_name": "MetadataSmokeTest", "version_name": MC_VERSION, "game_directory": str(game),
+            "assets_root": str(assets), "assets_index_name": asset_index["id"],
+            "auth_uuid": "00000000000000000000000000000000", "auth_access_token": "0",
+            "user_properties": "{}", "user_type": "legacy"}
+    game_args = [re.sub(r"\$\{([^}]+)\}", lambda m: args[m[1]], arg)
+                 for arg in shlex.split(minecraft["minecraftArguments"])]
+    for tweaker in forge["+tweakers"]:
+        game_args.extend(["--tweakClass", tweaker])
+    command = ["java", "-Xmx2G", f"-Djava.library.path={natives}", *forge["+jvmArgs"],
+               "-cp", os.pathsep.join(classpath), forge["mainClass"], *game_args]
+    log_path = work / "launch.log"
+    with log_path.open("w") as log:
+        process = subprocess.Popen(command, cwd=game, stdout=log, stderr=subprocess.STDOUT,
+                                   env={**os.environ, "ALSOFT_DRIVERS": "null", "LIBGL_ALWAYS_SOFTWARE": "1"})
+        try:
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                output = log_path.read_text(errors="replace")
+                if "Forge Mod Loader has successfully loaded" in output:
+                    if not (game / "mods/lwjgl3ify-multi3ify-managed.jar").exists():
+                        raise RuntimeError("The helper did not install lwjgl3ify")
+                    print(f"Forge and lwjgl3ify {status['latest']} initialized successfully with UniMixins {unimixins['tag_name']}")
+                    return
+                if process.poll() is not None:
+                    break
+                time.sleep(1)
+            print(log_path.read_text(errors="replace")[-24000:])
+            raise RuntimeError(f"Game did not finish Forge initialization; full log: {log_path}")
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("site", type=Path)
+    parser.add_argument("--work", type=Path, default=Path("build/launch-smoke"))
+    parser.add_argument("--timeout", type=int, default=180)
+    options = parser.parse_args()
+    smoke(options.site, options.work, options.timeout)

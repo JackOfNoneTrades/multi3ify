@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>multi3ify — lwjgl3ify through Prism</title>
+<style>
+  :root { color-scheme: light dark; font: 17px/1.65 system-ui,sans-serif; }
+  body { max-width: 760px; margin: 8vh auto; padding: 0 24px 60px; }
+  h1 { font-size: 3rem; line-height: 1.1; letter-spacing: -.04em; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; }
+  a { color: light-dark(#1557a0,#89baff); }
+  code { overflow-wrap: anywhere; font-size: .88em; }
+  .endpoint { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    background: light-dark(#edf2f7,#202a35); padding: 16px; border-radius: 10px; }
+  button { padding: 8px 14px; cursor: pointer; font: inherit; }
+  .muted { color: light-dark(#526170,#aab7c5); }
+  li { margin: .65rem 0; }
+</style>
+<h1>multi3ify</h1>
+<p>All the regular Prism versions. Minecraft 1.7.10 with lwjgl3ify, ready to launch.</p>
+<p class="muted" id="status">A Prism-compatible metadata feed, updated automatically.</p>
+<div class="endpoint"><code id="endpoint">./v1/</code><button id="copy" type="button">Copy URL</button></div>
+<h2>Set up once</h2>
+<ol>
+  <li>In Prism, open <strong>Settings → APIs → Services → Metadata Server</strong> and paste the URL above.</li>
+  <li>Create an instance using <strong>1.7.10-lwjgl3ify</strong>. Its matching Forge version is installed automatically.</li>
+  <li>Install <a href="https://github.com/LegacyModdingMC/UniMixins/releases">UniMixins</a>
+    (the combined jar, version 0.1.23 or newer) in the instance’s <code>mods</code> folder.</li>
+  <li>Launch. Keep Prism’s automatic Java selection and download enabled so it can supply a compatible Java runtime.</li>
+</ol>
+<p>The launcher profile handles the libraries and Java arguments. A small helper downloads and verifies lwjgl3ify
+  before the game starts. Existing lwjgl3ify jars are backed up automatically; UniMixins and other mods are left in place.</p>
+<h2>Updates without moving jars</h2>
+<p>The default <code>10.13.4.1614-lwjgl3ify-latest</code> Forge option follows stable releases when Prism refreshes
+  its metadata. Restart Prism if its version list is cached.</p>
+<p>To pin a release or roll back, open <strong>Edit Instance → Version → Forge → Change version</strong>
+  and choose a numbered <code>10.13.4.1614-lwjgl3ify-…</code> release. The next launch installs it automatically.</p>
+<p class="muted">This is a separate Minecraft entry so regular 1.7.10 keeps its original Java and LWJGL requirements.
+  If the mod browser filters by this custom version, select Minecraft 1.7.10 manually in its filters.
+  Forks need custom metadata, component dependencies, JVM arguments, and Java management support.</p>
+<p><a href="https://github.com/JackOfNoneTrades/multi3ify">Source and setup instructions</a> ·
+  <a href="v1/index.json">Metadata index</a> · <a href="status.json">Build status</a> ·
+  <a href="https://github.com/GTNewHorizons/lwjgl3ify">lwjgl3ify</a></p>
+<script>
+  const endpoint = new URL('v1/', location.href).href;
+  document.querySelector('#endpoint').textContent = endpoint;
+  document.querySelector('#copy').onclick = async event => {
+    try { await navigator.clipboard.writeText(endpoint); event.target.textContent = 'Copied'; }
+    catch { event.target.textContent = 'Select and copy the URL'; }
+  };
+  fetch('status.json').then(response => { if (!response.ok) throw Error(); return response.json(); })
+    .then(status => { document.querySelector('#status').textContent =
+      `Latest: lwjgl3ify ${status.latest} · ${status.versions.length} releases · Updated ${new Date(status.builtAt).toLocaleDateString()}`; })
+    .catch(() => {});
+</script>
+</html>
