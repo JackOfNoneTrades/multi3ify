@@ -86,6 +86,8 @@ Java requirements, JVM arguments, and macOS first-thread entry point are retaine
 in upstream order. The embedded `forgePatches` jar is converted into a verified
 remote download. All large game/mod/library artifacts remain upstream-hosted.
 The Pages site hosts JSON, a landing page, and the small Java helper compiled in CI.
+Successfully published helper jars are retained in `bootstrap/releases/` so cached
+metadata can still download older helper versions after a deployment.
 
 The helper downloads the selected mod into the instance and then calls the
 upstream entry point on the same thread. It is needed because Prism's parsed

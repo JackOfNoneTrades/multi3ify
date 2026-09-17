@@ -202,10 +202,23 @@ def build_bootstrap(output, site_url):
                 jar.writestr(info, path.read_bytes())
         data = buffer.getvalue()
     version = sha256(data)[:16]
-    relative = f"maven/io/github/jackofnonetrades/multi3ify-bootstrap/{version}/multi3ify-bootstrap-{version}.jar"
-    path = output / relative
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    # Retain older helpers: clients may still have metadata from an earlier
+    # deployment. CI commits these tiny, immutable jars after successful deploys.
+    archive = ROOT / "bootstrap/releases"
+    archive.mkdir(exist_ok=True)
+    (archive / f"{version}.jar").write_bytes(data)
+    relative = None
+    for release in sorted(archive.glob("*.jar")):
+        release_data = release.read_bytes()
+        if sha256(release_data)[:16] != release.stem:
+            raise ValueError(f"Archived helper checksum mismatch: {release}")
+        release_path = (f"maven/io/github/jackofnonetrades/multi3ify-bootstrap/{release.stem}/"
+                        f"multi3ify-bootstrap-{release.stem}.jar")
+        path = output / release_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(release_data)
+        if release.stem == version:
+            relative = release_path
     return {"name": f"io.github.jackofnonetrades:multi3ify-bootstrap:{version}",
             "downloads": {"artifact": {"url": site_url.rstrip("/") + "/" + relative,
                                         "sha1": hashlib.sha1(data).hexdigest(), "size": len(data)}}}

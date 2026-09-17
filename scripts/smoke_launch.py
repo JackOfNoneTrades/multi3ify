@@ -117,10 +117,13 @@ def smoke(site, work, timeout):
         game_args.extend(["--tweakClass", tweaker])
     command = ["java", "-Xmx2G", f"-Djava.library.path={natives}", *forge["+jvmArgs"],
                "-cp", os.pathsep.join(classpath), forge["mainClass"], *game_args]
+    xdg_data = work / "xdg-data"
+    xdg_data.mkdir(exist_ok=True)
     log_path = work / "launch.log"
     with log_path.open("w") as log:
         process = subprocess.Popen(command, cwd=game, stdout=log, stderr=subprocess.STDOUT,
-                                   env={**os.environ, "ALSOFT_DRIVERS": "null", "LIBGL_ALWAYS_SOFTWARE": "1"})
+                                   env={**os.environ, "ALSOFT_DRIVERS": "null", "LIBGL_ALWAYS_SOFTWARE": "1",
+                                        "XDG_DATA_HOME": str(xdg_data)})
         try:
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
