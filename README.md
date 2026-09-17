@@ -25,6 +25,11 @@ UniMixins once; the launcher profile handles the rest.**
 
 ## Choose or update lwjgl3ify
 
+The **New Instance** dialog lists the single Minecraft profile
+`1.7.10-lwjgl3ify`. Create the instance first (leave its Mod Loader selection at
+**None**; Forge is a dependency), then open the dedicated **lwjgl3ify** row in
+the instance's Version tab to choose a mod release. Its default is `latest`.
+
 Open **Edit Instance → Version → lwjgl3ify → Change version**. This works on
 installed instances, including upgrades and downgrades:
 
@@ -52,6 +57,12 @@ lwjgl3ify row. You do not need to remove Forge first or recreate the instance.
 The instance's worlds, mods, and configuration stay in place. Install UniMixins if
 it is missing, then launch; the helper also handles existing manual lwjgl3ify jars.
 Leave automatic Java selection/download enabled and clear a forced Java 8 override.
+
+**Change the Minecraft row when converting an ordinary instance.** Selecting the
+special Forge version alone leaves Minecraft's LWJGL 2 libraries installed alongside
+LWJGL 3. This used to crash with a `PointerBuffer` / `CustomBuffer` `VerifyError`.
+The helper now detects that mixture before changing any mods and prints the exact
+Minecraft selection needed to finish the conversion.
 
 Instances with local Minecraft/Forge customizations or old manually installed
 lwjgl3ify component patches need those custom components reverted/removed first;
@@ -185,7 +196,9 @@ pin preservation across new releases, legacy URL hashes, classpath order, Java c
 and real Java helper installation, migration, upgrade, rollback, and offline reuse.
 Before publishing, Linux CI also downloads the real game libraries and assets and
 launches the latest generated profile under Xvfb in an isolated offline instance
-with only UniMixins preinstalled. Publication requires Forge to finish mod
+with only UniMixins preinstalled. It first checks that mixing the real LWJGL 2 and
+LWJGL 3 jars fails with the conversion instructions before modifying instance files,
+regardless of classpath order. Publication requires Forge to finish mod
 initialization. Run this check locally on Linux with
 `xvfb-run -a python3 -m scripts.smoke_launch public`.
 

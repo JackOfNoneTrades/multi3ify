@@ -13,11 +13,12 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import tempfile
 import time
 import urllib.parse
 import zipfile
 
-from scripts.build_metadata import fetch, MC_VERSION, GAME_VERSION, LWJGL3IFY_UID
+from scripts.build_metadata import fetch, MC_VERSION, GAME_VERSION, LWJGL3IFY_UID, BOOTSTRAP_CLASS
 
 
 def download(artifact, path):
@@ -43,6 +44,25 @@ def active(library):
         if rule.get("os", {}).get("name", "linux") == "linux":
             allowed = rule["action"] == "allow"
     return allowed
+
+
+def check_legacy_conflict(site, work, classpath):
+    """Exercise the real jars from an ordinary instance with only Forge changed."""
+    vanilla = json.loads((site / f"v1/net.minecraft/{GAME_VERSION}.json").read_bytes())
+    version = next(r["suggests"] for r in vanilla["requires"] if r["uid"] == "org.lwjgl")
+    legacy = json.loads((site / f"v1/org.lwjgl/{version}.json").read_bytes())
+    library = next(lib for lib in legacy["libraries"] if lib["name"].startswith("org.lwjgl.lwjgl:lwjgl:"))
+    artifact = library["downloads"]["artifact"]
+    path = download(artifact, work / "libraries" / Path(urllib.parse.urlparse(artifact["url"]).path).name)
+    with tempfile.TemporaryDirectory(prefix="legacy-conflict-", dir=work) as tmp:
+        game = Path(tmp) / "game"
+        for mixed in ([str(path), *classpath], [*classpath, str(path)]):
+            result = subprocess.run(["java", "-cp", os.pathsep.join(mixed), BOOTSTRAP_CLASS,
+                                     "--gameDir", str(game)], capture_output=True, text=True, timeout=30)
+            if (result.returncode == 0 or "Minecraft -> Change version -> 1.7.10-lwjgl3ify" not in result.stderr
+                    or "VerifyError" in result.stderr or game.exists()):
+                raise RuntimeError(f"Mixed LWJGL runtime was not rejected before mod installation:\n{result.stderr}")
+    print("Real LWJGL 2/3 conflict rejected in both classpath orders before changing instance files", flush=True)
 
 
 def smoke(site, work, timeout):
@@ -87,6 +107,7 @@ def smoke(site, work, timeout):
             native_jars.append(path)
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda task: download(*task), tasks))
+    check_legacy_conflict(site, work, classpath)
     natives = work / "natives"
     natives.mkdir(exist_ok=True)
     for path in native_jars:

@@ -27,6 +27,7 @@ public final class Bootstrap {
     private Bootstrap() {}
 
     public static void main(String[] args) throws Throwable {
+        checkRuntime();
         String digest = required("multi3ify.modSha256");
         if (!digest.matches("[a-f0-9]{64}")) {
             throw new IOException("Invalid lwjgl3ify SHA-256 in launcher metadata");
@@ -70,6 +71,22 @@ public final class Bootstrap {
             Class.forName(delegate).getMethod("main", String[].class).invoke(null, (Object) args);
         } catch (InvocationTargetException e) {
             throw e.getCause();
+        }
+    }
+
+    private static void checkRuntime() throws IOException {
+        // Look for an LWJGL 2-only resource without loading/initializing any LWJGL
+        // classes. Loading PointerBuffer here can bind the wrong implementation,
+        // and native initialization must remain on upstream's macOS main thread.
+        URL legacy = Bootstrap.class.getClassLoader().getResource("org/lwjgl/LWJGLException.class");
+        if (legacy != null) {
+            throw new IOException("LWJGL 2 is still on this instance's classpath, alongside lwjgl3ify's LWJGL 3.\n"
+                    + "In your launcher, select Edit Instance -> Version -> Minecraft -> Change version"
+                    + " -> 1.7.10-lwjgl3ify.\n"
+                    + "Changing only the Forge version leaves the ordinary Minecraft runtime installed.\n"
+                    + "If the special Minecraft profile is already selected, remove the leftover LWJGL 2"
+                    + " component or local patch from the Version tab.\n"
+                    + "No mods were changed by this launch. Conflicting LWJGL 2 resource: " + legacy);
         }
     }
 
