@@ -1,4 +1,5 @@
-import copy
+from itertools import permutations
+import zipfile
 import json
 from pathlib import Path
 import tempfile
@@ -6,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts import build_metadata as meta
+from scripts.verify_metadata import verify
 
 
 def profile(version="3.0.33"):
@@ -79,7 +81,7 @@ class MetadataTests(unittest.TestCase):
 
     def test_profile_preserves_classpath_order_mac_traits_and_jvm_arguments(self):
         p = profile()
-        result = meta.forge_document(p, "10.13.4.1614", {"name": "test:bootstrap:1"})
+        result = meta.lwjgl3ify_document(p, "10.13.4.1614", {"name": "test:bootstrap:1"})
         names = [lib["name"] for lib in result["libraries"]]
         self.assertLess(next(i for i, n in enumerate(names) if n.endswith("forgePatches")),
                         next(i for i, n in enumerate(names) if n.startswith("net.minecraftforge:")))
@@ -93,10 +95,10 @@ class MetadataTests(unittest.TestCase):
     def test_incompatible_future_releases_fail_closed(self):
         p = profile()
         with self.assertRaisesRegex(ValueError, "targets Forge"):
-            meta.forge_document(p, "10.13.4.9999", {})
+            meta.lwjgl3ify_document(p, "10.13.4.9999", {})
         p["patches"][-1]["newLaunchMechanism"] = True
         with self.assertRaisesRegex(ValueError, "Unrecognized"):
-            meta.forge_document(p, "10.13.4.1614", {})
+            meta.lwjgl3ify_document(p, "10.13.4.1614", {})
 
     def test_overlay_preserves_original_versions_and_resolves_from_either_order(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -104,18 +106,20 @@ class MetadataTests(unittest.TestCase):
             upstream(source)
             with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
                 docs = meta.build(source, output, "https://example.org", [profile(), profile("3.0.32")])
-            self.assertEqual(docs[0]["version"], "10.13.4.1614-lwjgl3ify-latest")
+            self.assertEqual(docs[0]["version"], "latest")
             self.assertEqual(len(docs), 3)
             mirrored = Path(tmp) / "verify"
-            self.assertEqual(meta.mirror(output / "v1", mirrored), 7)
+            self.assertEqual(meta.mirror(output / "v1", mirrored), 8)
             for original in source.rglob("*.json"):
                 if original.name != "index.json":
                     self.assertEqual(original.read_bytes(), (output / "v1" / original.relative_to(source)).read_bytes())
             minecraft = json.loads((output / "v1/net.minecraft" / (meta.MC_VERSION + ".json")).read_bytes())
-            self.assertEqual(minecraft["requires"][0]["suggests"], docs[0]["version"])
+            bridge_id = minecraft["requires"][0]["suggests"]
+            bridge = json.loads((output / "v1/net.minecraftforge" / (bridge_id + ".json")).read_bytes())
+            self.assertEqual(bridge["requires"][1], {"uid": meta.LWJGL3IFY_UID, "suggests": "latest"})
             self.assertEqual(docs[0]["requires"][0]["equals"], meta.GAME_VERSION)
             # Prism inserts auto-installed dependencies before their parent component.
-            for components in ([minecraft, docs[0]], [docs[0], minecraft]):
+            for components in permutations([minecraft, bridge, docs[0]]):
                 effective = {}
                 for component in components:
                     for key in ("mainClass", "compatibleJavaMajors", "compatibleJavaName"):
@@ -142,14 +146,62 @@ class MetadataTests(unittest.TestCase):
             # the dependency resolver both use the latter via getVersion().
             component = {"version": entry["version"], "cachedVersion": minecraft["version"]}
             self.assertEqual(component["version"], meta.MC_VERSION)
-            forge_index = json.loads((root / "net.minecraftforge/index.json").read_bytes())
-            for forge in docs:
-                parent = forge["requires"][0]["equals"]
+            runtime_index = json.loads((root / meta.LWJGL3IFY_UID / "index.json").read_bytes())
+            for runtime in docs:
+                parent = runtime["requires"][0]["equals"]
                 self.assertEqual(parent, component["cachedVersion"])
-                forge_entry = next(v for v in forge_index["versions"] if v["version"] == forge["version"])
-                self.assertEqual(forge_entry["requires"], forge["requires"])
+                entry = next(v for v in runtime_index["versions"] if v["version"] == runtime["version"])
+                self.assertEqual(entry["requires"], runtime["requires"])
             self.assertNotIn("libraries", minecraft)
             self.assertNotIn("compatibleJavaMajors", minecraft)
+
+    def test_picker_is_independent_and_old_pinned_urls_keep_their_hashes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, output = Path(tmp) / "upstream", Path(tmp) / "public"
+            upstream(source)
+            with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
+                meta.build(source, output, "https://example.org", [profile(), profile("3.0.32")])
+            root = output / "v1"
+            forge_index = json.loads((root / "net.minecraftforge/index.json").read_bytes())
+            self.assertEqual([v["version"] for v in forge_index["versions"]],
+                             ["10.13.4.1614-lwjgl3ify-latest", "10.13.4.1614"])
+            package = next(p for p in json.loads((root / "index.json").read_bytes())["packages"]
+                           if p["uid"] == meta.LWJGL3IFY_UID)
+            self.assertEqual(package["name"], "lwjgl3ify")
+            _, index = meta.read_verified(root / meta.LWJGL3IFY_UID / "index.json", package["sha256"])
+            self.assertEqual([v["version"] for v in index["versions"]], ["latest", "3.0.33", "3.0.32"])
+            self.assertEqual([v["version"] for v in index["versions"] if v["recommended"]], ["latest"])
+            with zipfile.ZipFile(meta.ROOT / "metadata/legacy-forge.zip") as archive:
+                entries = json.loads(archive.read("index.json"))["versions"]
+                self.assertEqual(len(entries), 34)
+                for entry in entries:
+                    filename = entry["version"] + ".json"
+                    data, _ = meta.read_verified(root / "net.minecraftforge" / filename, entry["sha256"])
+                    self.assertEqual(data, archive.read(filename))
+            verify(root)
+
+    def test_future_release_updates_latest_without_changing_pins_or_forge_picker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, before, after = (Path(tmp) / name for name in ("upstream", "before", "after"))
+            upstream(source)
+            with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
+                meta.build(source, before, "https://example.org", [profile(), profile("3.0.32")])
+                meta.build(source, after, "https://example.org", [profile("3.0.34"), profile(), profile("3.0.32")])
+            for version in ("3.0.33", "3.0.32"):
+                path = Path("v1") / meta.LWJGL3IFY_UID / (version + ".json")
+                self.assertEqual((before / path).read_bytes(), (after / path).read_bytes())
+            latest = Path("v1") / meta.LWJGL3IFY_UID / "latest.json"
+            self.assertNotEqual((before / latest).read_bytes(), (after / latest).read_bytes())
+            for site in (before, after):
+                index = json.loads((site / "v1/net.minecraftforge/index.json").read_bytes())
+                self.assertEqual(len(index["versions"]), 2)
+                minecraft = json.loads((site / "v1/net.minecraft" / (meta.MC_VERSION + ".json")).read_bytes())
+                # Minecraft's Change version action updates an existing Forge to
+                # this suggestion and removes its old org.lwjgl dependency.
+                self.assertEqual(minecraft["requires"], [{"uid": "net.minecraftforge",
+                                  "suggests": "10.13.4.1614-lwjgl3ify-latest"}])
+                self.assertNotIn("mainClass", minecraft)
+                self.assertNotIn("libraries", minecraft)
 
     def test_alias_support_does_not_allow_arbitrary_identity_mismatches(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 ROOT = Path(__file__).resolve().parents[1]
 MC_VERSION = "1.7.10-lwjgl3ify"
 GAME_VERSION = "1.7.10"
+LWJGL3IFY_UID = "io.github.jackofnonetrades.lwjgl3ify"
 BOOTSTRAP_CLASS = "io.github.jackofnonetrades.multi3ify.Bootstrap"
 RELEASES_API = "https://api.github.com/repos/GTNewHorizons/lwjgl3ify/releases"
 CACHE_SCHEMA = 1
@@ -236,7 +237,7 @@ def build_bootstrap(output, site_url):
                                         "sha1": hashlib.sha1(data).hexdigest(), "size": len(data)}}}
 
 
-def forge_document(profile, latest_forge, bootstrap):
+def lwjgl3ify_document(profile, latest_forge, bootstrap):
     patches = profile["patches"]
     forge = next(p for p in patches if p["uid"] == "net.minecraftforge")
     minecraft = next(p for p in patches if p["uid"] == "net.minecraft")
@@ -252,9 +253,9 @@ def forge_document(profile, latest_forge, bootstrap):
     for patch in patches:
         if set(patch) - supported:
             raise ValueError(f"Unrecognized upstream patch fields: {set(patch) - supported}")
-    document = {"formatVersion": 1, "uid": "net.minecraftforge",
-                "version": f"{latest_forge}-lwjgl3ify-{profile['version']}",
-                "name": f"Forge + lwjgl3ify {profile['version']}", "order": 5,
+    document = {"formatVersion": 1, "uid": LWJGL3IFY_UID,
+                "version": profile["version"],
+                "name": "lwjgl3ify", "order": 5, "volatile": True,
                 "releaseTime": profile["releaseTime"], "type": "release",
                 "requires": [{"uid": "net.minecraft", "equals": GAME_VERSION}],
                 "mainClass": BOOTSTRAP_CLASS, "libraries": [], "+jvmArgs": [], "+tweakers": [], "+traits": [],
@@ -276,9 +277,51 @@ def forge_document(profile, latest_forge, bootstrap):
     return document
 
 
-def add_versions(meta, uid, documents, *, aliases=None):
+def forge_bridge(latest_forge, release_time):
+    # Reuse the published latest ID: existing instances acquire the independent
+    # component on refresh. No libraries here, so dependency insertion order cannot
+    # put vanilla Forge ahead of the early lwjgl3ify Forge patches.
+    return {"formatVersion": 1, "uid": "net.minecraftforge",
+            "version": f"{latest_forge}-lwjgl3ify-latest", "name": "Forge (lwjgl3ify)",
+            "order": 5, "releaseTime": release_time, "type": "release",
+            "requires": [{"uid": "net.minecraft", "equals": GAME_VERSION},
+                         {"uid": LWJGL3IFY_UID, "suggests": "latest"}]}
+
+
+def restore_legacy_forge(meta):
+    """Keep old pinned URLs byte-identical, outside the new selection index.
+
+    Prism retains hashes of removed index entries in its cache. Rewriting these
+    documents as redirects would break existing pinned instances with that cache.
+    The archive also preserves releases excluded by a later minimum setting.
+    """
+    with zipfile.ZipFile(ROOT / "metadata/legacy-forge.zip") as archive:
+        entries = json.loads(archive.read("index.json"))["versions"]
+        for entry in entries:
+            version = segment(entry["version"])
+            data = archive.read(version + ".json")
+            if sha256(data) != entry["sha256"]:
+                raise ValueError(f"Legacy Forge checksum mismatch: {version}")
+            target = meta / "net.minecraftforge" / (version + ".json")
+            if target.exists():
+                raise ValueError(f"Legacy Forge would overwrite upstream: {version}")
+            target.write_bytes(data)
+    return len(entries)
+
+
+def add_versions(meta, uid, documents, *, aliases=None, name=None):
     index_path = meta / uid / "index.json"
-    index = json.loads(index_path.read_bytes())
+    root_path = meta / "index.json"
+    root = json.loads(root_path.read_bytes())
+    package = next((p for p in root["packages"] if p["uid"] == uid), None)
+    if package is None:
+        if not name:
+            raise ValueError(f"New metadata package needs a name: {uid}")
+        package = {"uid": uid, "name": name}
+        root["packages"].append(package)
+        index = {"formatVersion": 1, "uid": uid, "name": name, "versions": []}
+    else:
+        index = json.loads(index_path.read_bytes())
     existing = {v["version"] for v in index["versions"]}
     entries = []
     for document in documents:
@@ -289,15 +332,15 @@ def add_versions(meta, uid, documents, *, aliases=None):
             raise ValueError(f"Refusing to replace upstream version {uid}/{version}")
         existing.add(version)
         digest = write_json(meta / uid / f"{version}.json", document)
-        entry = {k: document[k] for k in ("version", "releaseTime", "type", "requires") if k in document}
+        entry = {k: document[k] for k in ("version", "releaseTime", "type", "requires", "volatile") if k in document}
+        if uid == LWJGL3IFY_UID:
+            entry["recommended"] = version == "latest"
         entry["version"] = version
         entry["sha256"] = digest
         entries.append(entry)
     index["versions"] = entries + index["versions"]
     digest = write_json(index_path, index)
-    root_path = meta / "index.json"
-    root = json.loads(root_path.read_bytes())
-    next(p for p in root["packages"] if p["uid"] == uid)["sha256"] = digest
+    package["sha256"] = digest
     write_json(root_path, root)
 
 
@@ -315,25 +358,29 @@ def build(source, output, site_url, profiles):
                              for r in v.get("requires", []))]
     latest_forge = max(forge_versions, key=lambda v: tuple(map(int, v.split("."))))
     bootstrap = build_bootstrap(output, site_url)
-    documents = [forge_document(p, latest_forge, bootstrap) for p in profiles]
+    documents = [lwjgl3ify_document(p, latest_forge, bootstrap) for p in profiles]
     latest = copy.deepcopy(documents[0])
-    latest["version"] = f"{latest_forge}-lwjgl3ify-latest"
-    latest["name"] = f"Forge + lwjgl3ify latest ({profiles[0]['version']})"
+    latest["version"] = "latest"
     documents.insert(0, latest)
+    bridge = forge_bridge(latest_forge, profiles[0]["releaseTime"])
     minecraft = json.loads((meta / "net.minecraft/1.7.10.json").read_bytes())
-    # All runtime libraries and Java requirements belong to the selected Forge variant.
+    # All runtime libraries and Java requirements belong to the lwjgl3ify component.
     # This avoids mixing vanilla LWJGL 2/Java 8 with a modern lwjgl3ify release.
     for key in ("libraries", "compatibleJavaMajors", "compatibleJavaName", "mainClass"):
         minecraft.pop(key, None)
     minecraft.update({"version": GAME_VERSION, "name": "Minecraft 1.7.10 + lwjgl3ify",
                       "releaseTime": profiles[0]["releaseTime"],
-                      "requires": [{"uid": "net.minecraftforge", "suggests": documents[0]["version"]}]})
-    add_versions(meta, "net.minecraftforge", documents)
+                      "requires": [{"uid": "net.minecraftforge", "suggests": bridge["version"]}]})
+    add_versions(meta, LWJGL3IFY_UID, documents, name="lwjgl3ify")
+    add_versions(meta, "net.minecraftforge", [bridge])
     add_versions(meta, "net.minecraft", [minecraft], aliases={GAME_VERSION: MC_VERSION})
+    legacy_count = restore_legacy_forge(meta)
     (output / ".nojekyll").touch()
     shutil.copyfile(ROOT / "site/index.html", output / "index.html")
     write_json(output / "status.json", {"builtAt": datetime.now(timezone.utc).isoformat(),
                "upstreamVersions": count, "minecraft": MC_VERSION, "gameVersion": GAME_VERSION, "forge": latest_forge,
+               "lwjgl3ifyComponent": LWJGL3IFY_UID, "forgeComponentVersion": bridge["version"],
+               "legacyForgeVersions": legacy_count,
                "latest": profiles[0]["version"], "versions": [p["version"] for p in profiles]})
     return documents
 
@@ -352,7 +399,7 @@ def main():
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         profiles = list(pool.map(lambda r: release_profile(r, args.cache), releases(args.minimum)))
     documents = build(args.upstream, args.output, args.site_url, profiles)
-    print(f"Built {len(documents)} lwjgl3ify Forge entries (including latest) at {args.output}")
+    print(f"Built {len(documents)} lwjgl3ify versions (including latest) and one Forge entry at {args.output}")
 
 
 if __name__ == "__main__":

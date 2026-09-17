@@ -23,7 +23,7 @@
 <h2>Set up once</h2>
 <ol>
   <li>In Prism, open <strong>Settings → APIs → Services → Metadata Server</strong> and paste the URL above.</li>
-  <li>Create an instance using <strong>1.7.10-lwjgl3ify</strong>. Its matching Forge version is installed automatically.</li>
+  <li>Create an instance using <strong>1.7.10-lwjgl3ify</strong>. Its matching Forge and lwjgl3ify components are installed automatically.</li>
   <li>Install <a href="https://github.com/LegacyModdingMC/UniMixins/releases">UniMixins</a>
     (the combined jar, version 0.1.23 or newer) in the instance’s <code>mods</code> folder.</li>
   <li>Launch. Keep Prism’s automatic Java selection and download enabled so it can supply a compatible Java runtime.</li>
@@ -31,10 +31,22 @@
 <p>The launcher profile handles the libraries and Java arguments. A small helper downloads and verifies lwjgl3ify
   before the game starts. Existing lwjgl3ify jars are backed up automatically; UniMixins and other mods are left in place.</p>
 <h2>Updates without moving jars</h2>
-<p>The default <code>10.13.4.1614-lwjgl3ify-latest</code> Forge option follows stable releases when Prism refreshes
-  its metadata. Restart Prism if its version list is cached.</p>
-<p>To pin a release or roll back, open <strong>Edit Instance → Version → Forge → Change version</strong>
-  and choose a numbered <code>10.13.4.1614-lwjgl3ify-…</code> release. The next launch installs it automatically.</p>
+<p>Open <strong>Edit Instance → Version → lwjgl3ify → Change version</strong> to update, pin a release,
+  or roll back an installed instance. Choose <code>latest</code> for automatic stable updates, or a numbered
+  release to stay on that version. The next launch installs the selected jar automatically.</p>
+<p>New releases are checked every six hours. Restart Prism and reopen the instance’s Version tab if its
+  metadata is cached. Only the lwjgl3ify picker lists mod releases; Minecraft and Forge each have one extra choice.</p>
+<h2>Add to an existing 1.7.10 instance</h2>
+<p>Set the metadata URL above, then open <strong>Edit Instance → Version → Minecraft → Change version</strong>
+  and choose <strong>1.7.10-lwjgl3ify</strong>. Prism switches the ordinary Forge component and adds lwjgl3ify
+  in place. Your worlds, mods, and configuration stay in the same instance. Install UniMixins if needed and launch.</p>
+<p class="muted">Keep automatic Java selection/download enabled and clear any forced Java 8 override.
+  Existing local Minecraft/Forge or manual lwjgl3ify component patches need to be reverted or removed first.</p>
+<h2>Already using multi3ify?</h2>
+<p>Restart Prism and open the instance’s Version tab. The old <code>10.13.4.1614-lwjgl3ify-latest</code>
+  Forge entry automatically adds the new lwjgl3ify row. Older numbered Forge entries keep working and stay pinned.
+  To use the new picker with one, change Forge to <code>10.13.4.1614-lwjgl3ify-latest</code>, then choose your
+  desired release in the lwjgl3ify row before launching.</p>
 <p class="muted">This is a separate Minecraft entry so regular 1.7.10 keeps its original Java and LWJGL requirements.
   The integrated mod browser automatically searches for Minecraft 1.7.10.
   Forks need custom metadata, component dependencies, JVM arguments, and Java management support.</p>

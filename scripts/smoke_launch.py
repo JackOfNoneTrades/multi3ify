@@ -17,7 +17,7 @@ import time
 import urllib.parse
 import zipfile
 
-from scripts.build_metadata import fetch, MC_VERSION, GAME_VERSION
+from scripts.build_metadata import fetch, MC_VERSION, GAME_VERSION, LWJGL3IFY_UID
 
 
 def download(artifact, path):
@@ -50,12 +50,15 @@ def smoke(site, work, timeout):
     game = work / "game"
     game.mkdir(parents=True, exist_ok=True)
     status = json.loads((site / "status.json").read_bytes())
-    forge = json.loads((site / f"v1/net.minecraftforge/{status['forge']}-lwjgl3ify-latest.json").read_bytes())
     minecraft = json.loads((site / f"v1/net.minecraft/{MC_VERSION}.json").read_bytes())
+    bridge_id = next(r["suggests"] for r in minecraft["requires"] if r["uid"] == "net.minecraftforge")
+    bridge = json.loads((site / f"v1/net.minecraftforge/{bridge_id}.json").read_bytes())
+    runtime_id = next(r["suggests"] for r in bridge["requires"] if r["uid"] == LWJGL3IFY_UID)
+    runtime = json.loads((site / "v1" / LWJGL3IFY_UID / f"{runtime_id}.json").read_bytes())
     if minecraft["version"] != GAME_VERSION:
         raise ValueError("The mod browser must see Minecraft 1.7.10")
     libraries = {}
-    for library in forge["libraries"]:
+    for library in runtime["libraries"]:
         if not active(library):
             continue
         parts = library["name"].split(":")
@@ -115,10 +118,10 @@ def smoke(site, work, timeout):
             "user_properties": "{}", "user_type": "legacy"}
     game_args = [re.sub(r"\$\{([^}]+)\}", lambda m: args[m[1]], arg)
                  for arg in shlex.split(minecraft["minecraftArguments"])]
-    for tweaker in forge["+tweakers"]:
+    for tweaker in runtime["+tweakers"]:
         game_args.extend(["--tweakClass", tweaker])
-    command = ["java", "-Xmx2G", f"-Djava.library.path={natives}", *forge["+jvmArgs"],
-               "-cp", os.pathsep.join(classpath), forge["mainClass"], *game_args]
+    command = ["java", "-Xmx2G", f"-Djava.library.path={natives}", *runtime["+jvmArgs"],
+               "-cp", os.pathsep.join(classpath), runtime["mainClass"], *game_args]
     xdg_data = work / "xdg-data"
     xdg_data.mkdir(exist_ok=True)
     log_path = work / "launch.log"
