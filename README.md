@@ -1,7 +1,6 @@
 # multi3ify
 
 Prism metadata with automatic lwjgl3ify installation for Minecraft 1.7.10.
-All regular versions remain available. UniMixins is the only mod you install manually.
 
 ## Setup
 
