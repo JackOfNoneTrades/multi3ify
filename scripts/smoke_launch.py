@@ -17,7 +17,7 @@ import time
 import urllib.parse
 import zipfile
 
-from scripts.build_metadata import fetch, MC_VERSION
+from scripts.build_metadata import fetch, MC_VERSION, GAME_VERSION
 
 
 def download(artifact, path):
@@ -52,6 +52,8 @@ def smoke(site, work, timeout):
     status = json.loads((site / "status.json").read_bytes())
     forge = json.loads((site / f"v1/net.minecraftforge/{status['forge']}-lwjgl3ify-latest.json").read_bytes())
     minecraft = json.loads((site / f"v1/net.minecraft/{MC_VERSION}.json").read_bytes())
+    if minecraft["version"] != GAME_VERSION:
+        raise ValueError("The mod browser must see Minecraft 1.7.10")
     libraries = {}
     for library in forge["libraries"]:
         if not active(library):
@@ -107,7 +109,7 @@ def smoke(site, work, timeout):
     unimixins = json.loads(fetch("https://api.github.com/repos/LegacyModdingMC/UniMixins/releases/latest"))
     mod = next(a for a in unimixins["assets"] if re.fullmatch(r"\+unimixins-all-1\.7\.10-[\d.]+\.jar", a["name"]))
     download({"url": mod["browser_download_url"], "size": mod["size"]}, game / "mods" / mod["name"])
-    args = {"auth_player_name": "MetadataSmokeTest", "version_name": MC_VERSION, "game_directory": str(game),
+    args = {"auth_player_name": "MetadataSmokeTest", "version_name": minecraft["version"], "game_directory": str(game),
             "assets_root": str(assets), "assets_index_name": asset_index["id"],
             "auth_uuid": "00000000000000000000000000000000", "auth_access_token": "0",
             "user_properties": "{}", "user_type": "legacy"}

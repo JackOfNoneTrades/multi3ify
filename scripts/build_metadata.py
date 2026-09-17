@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
 MC_VERSION = "1.7.10-lwjgl3ify"
+GAME_VERSION = "1.7.10"
 BOOTSTRAP_CLASS = "io.github.jackofnonetrades.multi3ify.Bootstrap"
 RELEASES_API = "https://api.github.com/repos/GTNewHorizons/lwjgl3ify/releases"
 CACHE_SCHEMA = 1
@@ -60,6 +61,17 @@ def read_verified(path, digest):
     return data, json.loads(data)
 
 
+def reported_version(uid, metadata_version):
+    """Prism keeps the lookup ID separately from the version in the payload.
+
+    Component::updateCachedData uses the payload version for mod searches and
+    dependency comparisons. Only our custom Minecraft entry is an alias.
+    """
+    if uid == "net.minecraft" and metadata_version == MC_VERSION:
+        return GAME_VERSION
+    return metadata_version
+
+
 def mirror(source, target):
     """Copy every indexed file verbatim, checking the complete checksum chain."""
     root = json.loads((source / "index.json").read_bytes())
@@ -76,7 +88,7 @@ def mirror(source, target):
         for entry in index["versions"]:
             version = segment(entry["version"])
             data, document = read_verified(source / uid / f"{version}.json", entry["sha256"])
-            if document["uid"] != uid or document["version"] != version:
+            if document["uid"] != uid or document["version"] != reported_version(uid, version):
                 raise ValueError(f"Mismatched version identity: {uid}/{version}")
             (target / uid / f"{version}.json").write_bytes(data)
             count += 1
@@ -244,7 +256,7 @@ def forge_document(profile, latest_forge, bootstrap):
                 "version": f"{latest_forge}-lwjgl3ify-{profile['version']}",
                 "name": f"Forge + lwjgl3ify {profile['version']}", "order": 5,
                 "releaseTime": profile["releaseTime"], "type": "release",
-                "requires": [{"uid": "net.minecraft", "equals": MC_VERSION}],
+                "requires": [{"uid": "net.minecraft", "equals": GAME_VERSION}],
                 "mainClass": BOOTSTRAP_CLASS, "libraries": [], "+jvmArgs": [], "+tweakers": [], "+traits": [],
                 "compatibleJavaMajors": minecraft["compatibleJavaMajors"],
                 "compatibleJavaName": minecraft["compatibleJavaName"]}
@@ -264,18 +276,21 @@ def forge_document(profile, latest_forge, bootstrap):
     return document
 
 
-def add_versions(meta, uid, documents):
+def add_versions(meta, uid, documents, *, aliases=None):
     index_path = meta / uid / "index.json"
     index = json.loads(index_path.read_bytes())
     existing = {v["version"] for v in index["versions"]}
     entries = []
     for document in documents:
-        version = segment(document["version"])
+        version = segment((aliases or {}).get(document["version"], document["version"]))
+        if document["version"] != reported_version(uid, version):
+            raise ValueError(f"Unsupported version alias: {uid}/{version}")
         if version in existing:
             raise ValueError(f"Refusing to replace upstream version {uid}/{version}")
         existing.add(version)
         digest = write_json(meta / uid / f"{version}.json", document)
         entry = {k: document[k] for k in ("version", "releaseTime", "type", "requires") if k in document}
+        entry["version"] = version
         entry["sha256"] = digest
         entries.append(entry)
     index["versions"] = entries + index["versions"]
@@ -310,15 +325,15 @@ def build(source, output, site_url, profiles):
     # This avoids mixing vanilla LWJGL 2/Java 8 with a modern lwjgl3ify release.
     for key in ("libraries", "compatibleJavaMajors", "compatibleJavaName", "mainClass"):
         minecraft.pop(key, None)
-    minecraft.update({"version": MC_VERSION, "name": "Minecraft 1.7.10 + lwjgl3ify",
+    minecraft.update({"version": GAME_VERSION, "name": "Minecraft 1.7.10 + lwjgl3ify",
                       "releaseTime": profiles[0]["releaseTime"],
                       "requires": [{"uid": "net.minecraftforge", "suggests": documents[0]["version"]}]})
     add_versions(meta, "net.minecraftforge", documents)
-    add_versions(meta, "net.minecraft", [minecraft])
+    add_versions(meta, "net.minecraft", [minecraft], aliases={GAME_VERSION: MC_VERSION})
     (output / ".nojekyll").touch()
     shutil.copyfile(ROOT / "site/index.html", output / "index.html")
     write_json(output / "status.json", {"builtAt": datetime.now(timezone.utc).isoformat(),
-               "upstreamVersions": count, "minecraft": MC_VERSION, "forge": latest_forge,
+               "upstreamVersions": count, "minecraft": MC_VERSION, "gameVersion": GAME_VERSION, "forge": latest_forge,
                "latest": profiles[0]["version"], "versions": [p["version"] for p in profiles]})
     return documents
 

@@ -113,7 +113,7 @@ class MetadataTests(unittest.TestCase):
                     self.assertEqual(original.read_bytes(), (output / "v1" / original.relative_to(source)).read_bytes())
             minecraft = json.loads((output / "v1/net.minecraft" / (meta.MC_VERSION + ".json")).read_bytes())
             self.assertEqual(minecraft["requires"][0]["suggests"], docs[0]["version"])
-            self.assertEqual(docs[0]["requires"][0]["equals"], meta.MC_VERSION)
+            self.assertEqual(docs[0]["requires"][0]["equals"], meta.GAME_VERSION)
             # Prism inserts auto-installed dependencies before their parent component.
             for components in ([minecraft, docs[0]], [docs[0], minecraft]):
                 effective = {}
@@ -123,6 +123,41 @@ class MetadataTests(unittest.TestCase):
                             effective[key] = component[key]
                 self.assertEqual(effective["mainClass"], meta.BOOTSTRAP_CLASS)
                 self.assertNotIn(8, effective["compatibleJavaMajors"])
+
+    def test_mod_search_uses_real_version_without_changing_selected_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, output = Path(tmp) / "upstream", Path(tmp) / "public"
+            upstream(source)
+            with patch.object(meta, "build_bootstrap", return_value={"name": "test:bootstrap:1"}):
+                docs = meta.build(source, output, "https://example.org", [profile()])
+            root = output / "v1"
+            index = json.loads((root / "net.minecraft/index.json").read_bytes())
+            entry = next(v for v in index["versions"] if v["version"] == meta.MC_VERSION)
+            data, minecraft = meta.read_verified(root / "net.minecraft" / (entry["version"] + ".json"), entry["sha256"])
+            self.assertEqual(entry["version"], "1.7.10-lwjgl3ify")
+            self.assertEqual(minecraft["version"], "1.7.10")
+            self.assertEqual(minecraft["name"], "Minecraft 1.7.10 + lwjgl3ify")
+            # Prism keeps Component::m_version as the lookup ID, but fills
+            # m_cachedVersion from VersionFile::version. ModFilterWidget and
+            # the dependency resolver both use the latter via getVersion().
+            component = {"version": entry["version"], "cachedVersion": minecraft["version"]}
+            self.assertEqual(component["version"], meta.MC_VERSION)
+            forge_index = json.loads((root / "net.minecraftforge/index.json").read_bytes())
+            for forge in docs:
+                parent = forge["requires"][0]["equals"]
+                self.assertEqual(parent, component["cachedVersion"])
+                forge_entry = next(v for v in forge_index["versions"] if v["version"] == forge["version"])
+                self.assertEqual(forge_entry["requires"], forge["requires"])
+            self.assertNotIn("libraries", minecraft)
+            self.assertNotIn("compatibleJavaMajors", minecraft)
+
+    def test_alias_support_does_not_allow_arbitrary_identity_mismatches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp)
+            upstream(source)
+            with self.assertRaisesRegex(ValueError, "Unsupported version alias"):
+                meta.add_versions(source, "net.minecraft", [{"version": "1.7.10"}],
+                                  aliases={"1.7.10": "arbitrary-profile"})
 
     def test_path_traversal_and_overwriting_upstream_are_rejected(self):
         for value in ("../test", "..", "a/b", "a\\b", "\x00"):

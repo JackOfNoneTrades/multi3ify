@@ -41,11 +41,15 @@ and change Minecraft to `1.7.10-lwjgl3ify`. The new Forge dependency installs on
 launch. Instances with old local lwjgl3ify patches need those custom components
 reverted/removed first; local patches override server metadata.
 
-Prism's mod browser may use the custom Minecraft version as its filter. Select
-**1.7.10** in the browser filter, or install the UniMixins jar directly. Forks must
-support custom metadata URLs, component dependencies, `+jvmArgs`, and modern Java.
-The launcher settings and mod compatibility of arbitrary forks cannot be fixed
-by a metadata server.
+Prism's integrated mod browser automatically searches for **Minecraft 1.7.10**.
+The selected profile remains `1.7.10-lwjgl3ify`, but its component reports the real
+game version. Existing instances created before this fix should restart Prism,
+launch once to refresh metadata, and reopen the mod browser. No instance rebuild
+or local JSON edits are needed.
+
+Forks must support custom metadata URLs, component dependencies, `+jvmArgs`, and
+modern Java. The launcher settings and mod compatibility of arbitrary forks
+cannot be fixed by a metadata server.
 
 ## Host your own
 
@@ -102,6 +106,15 @@ Forge selection work. It still downloads the original Mojang 1.7.10 client and
 assets. Its dependency suggests the `latest` Forge alias without forcing pinned
 instances back onto it.
 
+The catalog ID and filename are `1.7.10-lwjgl3ify`, while the Minecraft document's
+`version` is `1.7.10`. Prism retains the catalog ID for metadata downloads, then
+caches the document's version for mod searches, Forge version filtering, dependency
+checks, and game arguments. Custom Forge requirements therefore use `1.7.10` too.
+The generator explicitly validates this single alias; all other document identities
+must match their catalog entries. Vanilla `net.minecraft/1.7.10.json` remains
+unchanged. Choose the special profile at instance creation to get the modern
+runtime even though the loaded component displays the normal game version.
+
 The generator verifies that the upstream patches target the latest official
 1.7.10 Forge build (currently `10.13.4.1614`). A changed patch layout, missing asset,
 checksum mismatch, or incompatible Forge target fails publication instead of
@@ -124,7 +137,7 @@ python3 -m http.server --directory public 8000
 The output directory must be fresh for each build. To check only the current
 release quickly, add `--minimum 3.0.33`. The full build publishes all stable 3.x+
 releases. Tests cover byte-preserving mirroring, checksum failure, release
-pagination/filtering, dependency resolution, classpath order, Java compatibility,
+pagination/filtering, mod-search version reporting, dependency resolution, classpath order, Java compatibility,
 and real Java helper installation, migration, upgrade, rollback, and offline reuse.
 Before publishing, Linux CI also downloads the real game libraries and assets and
 launches the latest generated profile under Xvfb in an isolated offline instance
@@ -136,4 +149,6 @@ Upstream references: [Prism metadata](https://github.com/PrismLauncher/meta-laun
 [Prism API settings](https://prismlauncher.org/wiki/help-pages/apis/),
 [lwjgl3ify setup](https://github.com/GTNewHorizons/lwjgl3ify/blob/master/README.MD),
 [Prism library installer](https://github.com/PrismLauncher/PrismLauncher/blob/develop/launcher/minecraft/update/LibrariesTask.cpp),
-[Prism Java compatibility merging](https://github.com/PrismLauncher/PrismLauncher/blob/develop/launcher/minecraft/LaunchProfile.cpp).
+[Prism Java compatibility merging](https://github.com/PrismLauncher/PrismLauncher/blob/develop/launcher/minecraft/LaunchProfile.cpp),
+[Prism component version caching](https://github.com/PrismLauncher/PrismLauncher/blob/develop/launcher/minecraft/Component.cpp),
+[Prism mod search filters](https://github.com/PrismLauncher/PrismLauncher/blob/develop/launcher/ui/widgets/ModFilterWidget.cpp).
