@@ -34,7 +34,7 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
     needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: write
       pages: write
@@ -45,6 +45,7 @@ jobs:
     env:
       PRISM_META_REPOSITORY: ${{ vars.PRISM_META_REPOSITORY || 'PrismLauncher/meta-launcher' }}
       LWJGL3IFY_MIN_VERSION: ${{ vars.LWJGL3IFY_MIN_VERSION || '3.0.0' }}
+      CLEANROOM_MIN_VERSION: ${{ vars.CLEANROOM_MIN_VERSION || '0.6.13-alpha' }}
     steps:
       - uses: actions/checkout@v7
       - name: Check out the official metadata snapshot
@@ -66,25 +67,36 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: .cache/releases
-          key: lwjgl3ify-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: lwjgl3ify-v1-${{ runner.os }}-
+          key: multi3ify-v2-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            multi3ify-v2-${{ runner.os }}-
+            lwjgl3ify-v1-${{ runner.os }}-
       - name: Build the complete metadata feed
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SITE_URL: ${{ steps.pages.outputs.base_url }}
         run: >-
-          python scripts/build_metadata.py --upstream .upstream --output public
+          python -m scripts.build_metadata --upstream .upstream --output public
           --site-url "$SITE_URL" --minimum "$LWJGL3IFY_MIN_VERSION"
+          --cleanroom-minimum "$CLEANROOM_MIN_VERSION"
       - name: Verify served checksums and dependencies
         run: python -m scripts.verify_metadata public/v1
       - name: Install software graphics for the isolated launch test
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends xvfb libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0
+          sudo apt-get install -y --no-install-recommends xvfb xdotool libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0
       - name: Launch the latest profile with only UniMixins installed
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: xvfb-run -a python -m scripts.smoke_launch public
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Launch Cleanroom with empty and modded test instances
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: xvfb-run -a python -m scripts.smoke_cleanroom public
       - uses: actions/upload-pages-artifact@v5
         with:
           path: public
@@ -97,16 +109,18 @@ jobs:
         # recursively trigger workflows. Do not force-push over maintainer edits.
         run: |
           python - <<'PY'
-          import json, os, pathlib, subprocess
+          import json, os, pathlib, shutil, subprocess
           status = json.loads(pathlib.Path('public/status.json').read_text())
           state = {
               'metadataRepository': os.environ['PRISM_META_REPOSITORY'],
               'metadataCommit': subprocess.check_output(['git', '-C', '.upstream', 'rev-parse', 'HEAD'], text=True).strip(),
               'lwjgl3ifyVersions': status['versions'],
+              'cleanroomVersions': status['cleanroom']['versions'],
           }
           pathlib.Path('sync-state.json').write_text(json.dumps(state, indent=2) + '\n')
+          shutil.copyfile('public/cleanroom-lock.json', 'metadata/cleanroom-lock.json')
           PY
-          git add sync-state.json bootstrap/releases
+          git add sync-state.json bootstrap/releases metadata/cleanroom-lock.json
           if ! git diff --cached --quiet; then
             git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Record published metadata snapshot'
             git push

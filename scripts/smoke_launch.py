@@ -25,6 +25,7 @@ def download(artifact, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     def valid(data):
         return (len(data) == artifact.get("size", len(data))
+                and (not artifact.get("sha256") or hashlib.sha256(data).hexdigest() == artifact["sha256"])
                 and (not artifact.get("sha1") or hashlib.sha1(data).hexdigest() == artifact["sha1"]))
     if path.exists() and valid(path.read_bytes()):
         return path

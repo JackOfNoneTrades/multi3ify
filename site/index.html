@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>multi3ify — lwjgl3ify through Prism</title>
+<title>multi3ify — lwjgl3ify and Cleanroom through Prism</title>
 <style>
   :root { color-scheme: light dark; font: 17px/1.65 system-ui,sans-serif; }
   body { max-width: 760px; margin: 8vh auto; padding: 0 24px 60px; }
@@ -17,48 +17,59 @@
   li { margin: .65rem 0; }
 </style>
 <h1>multi3ify</h1>
-<p>All the regular Prism versions. Minecraft 1.7.10 with lwjgl3ify, ready to launch.</p>
+<p>All the regular Prism versions, plus Minecraft 1.7.10 with lwjgl3ify and Minecraft 1.12.2 with Cleanroom.</p>
 <p class="muted" id="status">A Prism-compatible metadata feed, updated automatically.</p>
 <div class="endpoint"><code id="endpoint">./v1/</code><button id="copy" type="button">Copy URL</button></div>
 <h2>Set up once</h2>
 <ol>
   <li>In Prism, open <strong>Settings → APIs → Services → Metadata Server</strong> and paste the URL above.</li>
-  <li>Create an instance using <strong>1.7.10-lwjgl3ify</strong>. Leave the Mod Loader selection at <strong>None</strong>:
-    its matching Forge and lwjgl3ify components are installed automatically.</li>
-  <li>Install <a href="https://github.com/LegacyModdingMC/UniMixins/releases">UniMixins</a>
-    (the combined jar, version 0.1.23 or newer) in the instance’s <code>mods</code> folder.</li>
+  <li>Create an instance using <strong>1.7.10-lwjgl3ify</strong> or <strong>1.12.2-cleanroom</strong>.
+    Leave the Mod Loader selection at <strong>None</strong>: its loader and runtime are installed automatically.</li>
+  <li>For <strong>lwjgl3ify</strong>, install <a href="https://github.com/LegacyModdingMC/UniMixins/releases">UniMixins</a>
+    (the combined jar, version 0.1.23 or newer) in the instance’s <code>mods</code> folder.
+    For <strong>Cleanroom</strong> with a conventional Forge pack, install
+    <a href="https://www.curseforge.com/minecraft/mc-mods/fugue">Fugue</a> and
+    <a href="https://www.curseforge.com/minecraft/mc-mods/scalar-legacy">Scalar Legacy</a>.</li>
   <li>Launch. Keep Prism’s automatic Java selection and download enabled so it can supply a compatible Java runtime.</li>
 </ol>
-<p>The launcher profile handles the libraries and Java arguments. A small helper downloads and verifies lwjgl3ify
-  before the game starts. Existing lwjgl3ify jars are backed up automatically; UniMixins and other mods are left in place.</p>
+<p>The launcher profile handles libraries and Java arguments. For lwjgl3ify, a small helper downloads and verifies
+  its matching mod before the game starts, backing up existing copies. Cleanroom launches directly and includes
+  MixinBooter and ConfigAnytime; no UniMixins or Relauncher is needed. Companion mods remain yours to manage.</p>
+<p class="muted">Current Cleanroom releases use Java 25. Packs using Scala 3 mods need
+  <a href="https://www.curseforge.com/minecraft/mc-mods/scalar">Scalar</a> instead of Scalar Legacy.
+  Do not install both providers.</p>
 <h2>Updates without moving jars</h2>
-<p>The New Instance dialog shows one Minecraft profile. After creating it, choose individual lwjgl3ify
-  releases in the instance’s Version tab:</p>
-<p>Open <strong>Edit Instance → Version → lwjgl3ify → Change version</strong> to update, pin a release,
-  or roll back an installed instance. Choose <code>latest</code> for automatic stable updates, or a numbered
-  release to stay on that version. The next launch installs the selected jar automatically.</p>
+<p>After creating an instance, open <strong>Edit Instance → Version → lwjgl3ify / Cleanroom → Change version</strong>
+  to update, pin a release, or roll back. Choose <code>latest</code> for automatic updates, or a numbered
+  release to stay on that version. lwjgl3ify follows stable releases; Cleanroom follows published releases,
+  including alpha releases. The next launch uses the selected runtime.</p>
 <p>New releases are checked every six hours. Restart Prism and reopen the instance’s Version tab if its
-  metadata is cached. Only the lwjgl3ify picker lists mod releases; Minecraft and Forge each have one extra choice.</p>
-<h2>Add to an existing 1.7.10 instance</h2>
+  metadata is cached. Each integration has its own release picker and adds one Minecraft profile and one loader entry.</p>
+<h2>Add to an existing instance</h2>
 <p>Set the metadata URL above, then open <strong>Edit Instance → Version → Minecraft → Change version</strong>
   and choose <strong>1.7.10-lwjgl3ify</strong>. Prism switches the ordinary Forge component and adds lwjgl3ify
   in place. Your worlds, mods, and configuration stay in the same instance. Install UniMixins if needed and launch.</p>
+<p>For an existing <strong>1.12.2</strong> instance, choose <strong>1.12.2-cleanroom</strong> in the same Minecraft
+  version dialog. Install Fugue and the appropriate Scalar provider, and review Cleanroom’s
+  <a href="https://cleanroommc.com/wiki/end-user-guide/preparing-your-modpack">modpack migration guide</a>
+  for pack-specific compatibility changes. Your mods remain in place.</p>
 <p><strong>Change the Minecraft row to convert an ordinary instance.</strong> Changing only Forge leaves
-  the old LWJGL 2 libraries installed, which conflict with lwjgl3ify’s LWJGL 3 libraries. If a previous attempt
+  the old LWJGL 2 libraries installed, which conflict with the new LWJGL 3 runtime. If a previous attempt
   crashed mentioning <code>PointerBuffer</code> or <code>CustomBuffer</code>, complete the Minecraft selection above.</p>
 <p class="muted">Keep automatic Java selection/download enabled and clear any forced Java 8 override.
-  Existing local Minecraft/Forge or manual lwjgl3ify component patches need to be reverted or removed first.</p>
+  Existing local Minecraft/Forge, LWJGL, lwjgl3ify or Cleanroom component patches need to be reverted or removed first.</p>
 <h2>Already using multi3ify?</h2>
 <p>Restart Prism and open the instance’s Version tab. The old <code>10.13.4.1614-lwjgl3ify-latest</code>
   Forge entry automatically adds the new lwjgl3ify row. Older numbered Forge entries keep working and stay pinned.
   To use the new picker with one, change Forge to <code>10.13.4.1614-lwjgl3ify-latest</code>, then choose your
   desired release in the lwjgl3ify row before launching.</p>
-<p class="muted">This is a separate Minecraft entry so regular 1.7.10 keeps its original Java and LWJGL requirements.
-  The integrated mod browser automatically searches for Minecraft 1.7.10.
+<p class="muted">These are separate Minecraft entries so regular 1.7.10 and 1.12.2 keep their original requirements.
+  The integrated mod browser searches for the real Minecraft version.
   Forks need custom metadata, component dependencies, JVM arguments, and Java management support.</p>
 <p><a href="https://github.com/JackOfNoneTrades/multi3ify">Source and setup instructions</a> ·
   <a href="v1/index.json">Metadata index</a> · <a href="status.json">Build status</a> ·
-  <a href="https://github.com/GTNewHorizons/lwjgl3ify">lwjgl3ify</a></p>
+  <a href="https://github.com/GTNewHorizons/lwjgl3ify">lwjgl3ify</a> ·
+  <a href="https://github.com/CleanroomMC/Cleanroom">Cleanroom</a></p>
 <script>
   const endpoint = new URL('v1/', location.href).href;
   document.querySelector('#endpoint').textContent = endpoint;
@@ -68,7 +79,9 @@
   };
   fetch('status.json').then(response => { if (!response.ok) throw Error(); return response.json(); })
     .then(status => { document.querySelector('#status').textContent =
-      `Latest: lwjgl3ify ${status.latest} · ${status.versions.length} releases · Updated ${new Date(status.builtAt).toLocaleDateString()}`; })
+      `Latest: lwjgl3ify ${status.latest}` +
+      (status.cleanroom ? ` · Cleanroom ${status.cleanroom.latest}` : '') +
+      ` · Updated ${new Date(status.builtAt).toLocaleDateString()}`; })
     .catch(() => {});
 </script>
 </html>

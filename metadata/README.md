@@ -16,3 +16,8 @@ To inspect the original JSON:
 ```sh
 python3 -m zipfile -e metadata/legacy-forge.zip /tmp/multi3ify-legacy-forge
 ```
+
+`cleanroom-lock.json` records the verified ZIP, universal jar and generated
+component hashes for published Cleanroom releases. CI updates it after a
+successful deployment. The builder refuses to silently replace a published
+numbered release if upstream assets or its generated runtime change.

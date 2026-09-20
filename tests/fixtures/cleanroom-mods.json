@@ -1,0 +1,20 @@
+[
+  {
+    "filename": "Scalar Legacy-1.0.1.jar",
+    "url": "https://edge.forgecdn.net/files/6842/491/Scalar%20Legacy-1.0.1.jar",
+    "size": 25464431,
+    "sha256": "350d1c378f3b0ac8e7b3df0432482bbb5341c79d07df843c747be1d5fdc23cfe"
+  },
+  {
+    "filename": "jei_1.12.2-4.16.1.1013.jar",
+    "url": "https://maven.blamejared.com/mezz/jei/jei_1.12.2/4.16.1.1013/jei_1.12.2-4.16.1.1013.jar",
+    "size": 655406,
+    "sha256": "52d0782ad805c20b1061711faa64a5fdc4640639738f7cedb1e5b0be46fc8685"
+  },
+  {
+    "filename": "+Fugue-0.24.4.jar",
+    "url": "https://github.com/CleanroomMC/Fugue/releases/download/0.24.4/%2BFugue-0.24.4.jar",
+    "size": 309884,
+    "sha256": "438248925eb38d16b6b4bcbe6247339b2a745cfe586d4917985f7d925a5d8630"
+  }
+]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a static Prism metadata mirror with upstream lwjgl3ify profiles.
+"""Build a static Prism metadata mirror with lwjgl3ify and Cleanroom profiles.
 
 Python 3.11+, JDK 17+, and no third-party Python dependencies are required.
 """
@@ -29,6 +29,8 @@ LWJGL3IFY_UID = "io.github.jackofnonetrades.lwjgl3ify"
 BOOTSTRAP_CLASS = "io.github.jackofnonetrades.multi3ify.Bootstrap"
 RELEASES_API = "https://api.github.com/repos/GTNewHorizons/lwjgl3ify/releases"
 CACHE_SCHEMA = 1
+MC_ALIASES = {MC_VERSION: GAME_VERSION, "1.12.2-cleanroom": "1.12.2"}
+CLEANROOM_UID = "io.github.jackofnonetrades.cleanroom"
 
 
 def encoded(value):
@@ -66,10 +68,10 @@ def reported_version(uid, metadata_version):
     """Prism keeps the lookup ID separately from the version in the payload.
 
     Component::updateCachedData uses the payload version for mod searches and
-    dependency comparisons. Only our custom Minecraft entry is an alias.
+    dependency comparisons. Only our custom Minecraft entries are aliases.
     """
-    if uid == "net.minecraft" and metadata_version == MC_VERSION:
-        return GAME_VERSION
+    if uid == "net.minecraft":
+        return MC_ALIASES.get(metadata_version, metadata_version)
     return metadata_version
 
 
@@ -333,7 +335,7 @@ def add_versions(meta, uid, documents, *, aliases=None, name=None):
         existing.add(version)
         digest = write_json(meta / uid / f"{version}.json", document)
         entry = {k: document[k] for k in ("version", "releaseTime", "type", "requires", "volatile") if k in document}
-        if uid == LWJGL3IFY_UID:
+        if uid in {LWJGL3IFY_UID, CLEANROOM_UID}:
             entry["recommended"] = version == "latest"
         entry["version"] = version
         entry["sha256"] = digest
@@ -344,7 +346,7 @@ def add_versions(meta, uid, documents, *, aliases=None, name=None):
     write_json(root_path, root)
 
 
-def build(source, output, site_url, profiles):
+def build(source, output, site_url, profiles, cleanroom_profiles=None):
     if output.exists():
         raise ValueError(f"Output already exists; choose a fresh directory: {output}")
     output.mkdir(parents=True)
@@ -377,30 +379,45 @@ def build(source, output, site_url, profiles):
     legacy_count = restore_legacy_forge(meta)
     (output / ".nojekyll").touch()
     shutil.copyfile(ROOT / "site/index.html", output / "index.html")
-    write_json(output / "status.json", {"builtAt": datetime.now(timezone.utc).isoformat(),
+    status = {"builtAt": datetime.now(timezone.utc).isoformat(),
                "upstreamVersions": count, "minecraft": MC_VERSION, "gameVersion": GAME_VERSION, "forge": latest_forge,
                "lwjgl3ifyComponent": LWJGL3IFY_UID, "forgeComponentVersion": bridge["version"],
                "legacyForgeVersions": legacy_count,
-               "latest": profiles[0]["version"], "versions": [p["version"] for p in profiles]})
+               "latest": profiles[0]["version"], "versions": [p["version"] for p in profiles]}
+    if cleanroom_profiles is not None:
+        from scripts import cleanroom
+        status["cleanroom"] = cleanroom.publish(meta, cleanroom_profiles)
+    write_json(output / "status.json", status)
     return documents
 
 
 def main():
+    from scripts import cleanroom
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--upstream", type=Path, required=True, help="Checkout of PrismLauncher/meta-launcher")
     parser.add_argument("--output", type=Path, default=Path("public"), help="Must not exist")
     parser.add_argument("--site-url", required=True, help="Public Pages root, without /v1")
     parser.add_argument("--cache", type=Path, default=Path(".cache/releases"))
     parser.add_argument("--minimum", default="3.0.0", help="Oldest stable lwjgl3ify release to include (3.x+)")
+    parser.add_argument("--cleanroom-minimum", default=cleanroom.MINIMUM,
+                        help="Oldest supported published Cleanroom release (including alpha releases)")
     parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args()
     if version_key(args.minimum) < (3, 0, 0):
         parser.error("lwjgl3ify older than 3.0.0 uses an unsupported patch layout")
+    if cleanroom.version_key(args.cleanroom_minimum) < cleanroom.version_key(cleanroom.MINIMUM):
+        parser.error(f"Cleanroom older than {cleanroom.MINIMUM} uses an unverified patch layout")
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         profiles = list(pool.map(lambda r: release_profile(r, args.cache), releases(args.minimum)))
-    documents = build(args.upstream, args.output, args.site_url, profiles)
-    print(f"Built {len(documents)} lwjgl3ify versions (including latest) and one Forge entry at {args.output}")
+        cleanroom_profiles = list(pool.map(lambda r: cleanroom.release_profile(r, args.cache / "cleanroom"),
+                                           cleanroom.releases(args.cleanroom_minimum)))
+    documents = build(args.upstream, args.output, args.site_url, profiles, cleanroom_profiles)
+    print(f"Built {len(documents)} lwjgl3ify and {len(cleanroom_profiles) + 1} Cleanroom versions "
+          f"(including latest) at {args.output}")
 
 
 if __name__ == "__main__":
+    # Keep direct script invocation working as well as python -m scripts.build_metadata.
+    import sys
+    sys.path.insert(0, str(ROOT))
     main()
