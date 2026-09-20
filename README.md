@@ -10,7 +10,7 @@ Prism metadata for Minecraft 1.7.10 with [lwjgl3ify](https://github.com/GTNewHor
    https://jackofnonetrades.github.io/multi3ify/v1/
    ```
 
-Or more memorable:
+   Or more memorable:
 
    ```text
    https://meta.fentanylsolutions.org
