@@ -16,7 +16,7 @@ Prism metadata for Minecraft 1.7.10 with [lwjgl3ify](https://github.com/GTNewHor
    https://meta.fentanylsolutions.org
    ```
 
-2. Create one of these profiles, leaving **Mod Loader → None**:
+2. Create one of these profiles, leaving **Mod Loader -> None**:
 
    | Profile | Installed automatically | Add to `mods` yourself |
    | --- | --- | --- |
