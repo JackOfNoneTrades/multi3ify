@@ -1,1 +1,7 @@
-{}
+{
+  "0.6.13-alpha": {
+    "archiveSha256": "a6de95ffa1f4c83eb5cf28e408bf49faacaca16ddedbd373bf184b7a96fb49ca",
+    "universalSha256": "c6c7e45d1b9b378979bcc6fda56f6911341a317ee400bdde4318cd570789fa31",
+    "documentSha256": "ca8674f47b5d4b3e03376df48775cec0035be9f7e305174212ad67d084d2b28e"
+  }
+}
