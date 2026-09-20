@@ -85,7 +85,6 @@ def launch(command, game, log_path, timeout, *, allow_missing_companions=False):
         try:
             deadline = time.monotonic() + timeout
             loaded_at = None
-            last_confirm = 0
             while time.monotonic() < deadline:
                 output = log_path.read_text(errors="replace")
                 if process.poll() is not None:
@@ -93,15 +92,6 @@ def launch(command, game, log_path, timeout, *, allow_missing_companions=False):
                 if "Fugue is missing" in output or "Scalar is missing" in output:
                     if not allow_missing_companions:
                         raise RuntimeError(f"Test companions were not loaded; full log: {log_path}")
-                    # Even the empty release can show upstream's confirmation
-                    # (classpath discovery counts Forge-type jars). Acknowledge
-                    # it in this isolated Xvfb window, without changing config.
-                    if loaded_at is None and time.monotonic() - last_confirm >= 3:
-                        result = subprocess.run(["xdotool", "search", "--onlyvisible", "--pid", str(process.pid)],
-                                                capture_output=True, text=True)
-                        for window in result.stdout.splitlines():
-                            subprocess.run(["xdotool", "windowfocus", window, "key", "Return"], check=True)
-                        last_confirm = time.monotonic()
                 if "Forge Mod Loader has successfully loaded" in output:
                     if loaded_at is None:
                         loaded_at = time.monotonic()
@@ -157,6 +147,14 @@ def smoke(site, work, java, timeout):
     for variant, selected in (("empty", runtime), ("modded", pinned)):
         game = work / variant
         game.mkdir(exist_ok=True)
+        if variant == "empty":
+            # Cleanroom 0.6.13 can clear warningPrompt while its splash thread
+            # renders it, crashing when the missing-companion prompt is accepted.
+            # Disable the splash only in this test instance: upstream then logs
+            # the warning and continues without a prompt. Still verify full startup.
+            config = game / "config"
+            config.mkdir(exist_ok=True)
+            (config / "splash.properties").write_text("enabled=false\n")
         mods = game / "mods"
         mods.mkdir(exist_ok=True)
         if variant == "modded":

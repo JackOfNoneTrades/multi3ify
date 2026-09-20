@@ -84,7 +84,7 @@ jobs:
       - name: Install software graphics for the isolated launch test
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends xvfb xdotool libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0
+          sudo apt-get install -y --no-install-recommends xvfb libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0
       - name: Launch the latest profile with only UniMixins installed
         env:
           GITHUB_TOKEN: ${{ github.token }}
