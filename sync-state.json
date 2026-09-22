@@ -1,6 +1,6 @@
 {
   "metadataRepository": "PrismLauncher/meta-launcher",
-  "metadataCommit": "e95ffe800482060d47f6b85132e3fc1ad1be0480",
+  "metadataCommit": "cc44957ce44f018d9adb5e2536cfbdfefb2376ef",
   "lwjgl3ifyVersions": [
     "3.0.35",
     "3.0.34",
